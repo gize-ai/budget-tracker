@@ -7,13 +7,10 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
-from contextlib import asynccontextmanager
 
 # ─── CONFIG ─────────────────────────
-TOKEN = os.environ.get("BOT_TOKEN", "ВАШ_ТОКЕН")
+TOKEN = os.environ.get("BOT_TOKEN", "")
 WEBAPP_URL = os.environ.get("WEBAPP_URL", "https://gize-ai.github.io/budget-tracker/")
-RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "")  # Render даёт эту переменную
-
 DB_FILE = "data.db"
 
 # ─── DATABASE ───────────────────────
@@ -22,129 +19,101 @@ def init_db():
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS transactions (
         id INTEGER PRIMARY KEY, user_id TEXT, type TEXT, amount REAL,
-        desc TEXT, cat TEXT, date TEXT)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS debts (
-        id INTEGER PRIMARY KEY, user_id TEXT, debt_type TEXT, person TEXT,
-        amount REAL, rate REAL, due_date TEXT)''')
+        category TEXT, description TEXT, project TEXT, date TEXT)''')
     conn.commit()
     conn.close()
 
 init_db()
 
-def db_add_tx(user_id, ttype, amount, desc, cat):
+def db_add(user_id, ttype, amount, category, desc, project):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("INSERT INTO transactions (user_id,type,amount,desc,cat,date) VALUES (?,?,?,?,?,?)",
-              (str(user_id), ttype, amount, desc, cat, datetime.now().isoformat()))
+    c.execute("INSERT INTO transactions (user_id,type,amount,category,description,project,date) VALUES (?,?,?,?,?,?,?)",
+              (str(user_id), ttype, amount, category, desc, project, datetime.now().isoformat()))
     conn.commit()
     conn.close()
 
 # ─── FASTAPI ────────────────────────
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Запускаем бота в фоне
-    if TOKEN and "ВАШ_ТОКЕН" not in TOKEN:
-        asyncio.create_task(run_bot())
-    yield
-
-app = FastAPI(lifespan=lifespan)
+app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 @app.get("/")
-def root():
-    return {"status": "ok"}
+def root(): return {"ok": True}
 
-@app.post("/api/transaction/{user_id}")
-async def api_add_tx(user_id: str, request: Request):
-    data = await request.json()
-    db_add_tx(user_id, data.get("type"), data.get("amount"), data.get("desc"), data.get("cat"))
+@app.post("/api/tx/{user_id}")
+async def api_tx(user_id: str, req: Request):
+    d = await req.json()
+    db_add(user_id, d.get("type"), d.get("amount"), d.get("category"), d.get("description"), d.get("project"))
     return {"ok": True}
 
-@app.get("/api/data/{user_id}")
-def api_get_data(user_id: str):
+@app.get("/api/tx/{user_id}")
+def api_get(user_id: str):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("SELECT type,amount,desc,cat,date FROM transactions WHERE user_id=?", (user_id,))
-    txs = [{"type": r[0], "amount": r[1], "desc": r[2], "cat": r[3], "date": r[4]} for r in c.fetchall()]
+    c.execute("SELECT type,amount,category,description,project,date FROM transactions WHERE user_id=?", (user_id,))
+    rows = [{"type":r[0],"amount":r[1],"category":r[2],"description":r[3],"project":r[4],"date":r[5]} for r in c.fetchall()]
     conn.close()
-    return {"transactions": txs}
+    return {"transactions": rows}
 
 # ─── TELEGRAM BOT ───────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    uid = update.effective_user.id
     kb = [[InlineKeyboardButton("Открыть приложение", web_app=WebAppInfo(url=WEBAPP_URL))]]
     await update.message.reply_text(
-        f"Привет! Отправь мне текстом или голосом, что купил и за сколько.\n"
-        f"Пример: «энергос 120» или «доход зарплата 50000»\n\n"
-        f"Твой ID для синхронизации: `{user_id}`",
+        f"Привет! Отправь мне трату или доход текстом.\n"
+        f"Пример: «продукты 450» или «доход фриланс 15000»\n\n"
+        f"Ваш ID: `{uid}`",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(kb)
     )
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    text = update.message.text.lower()
-    
-    # Парсинг: «энергос 120» или «доход арбитраж 5000»
+    uid = update.effective_user.id
+    text = update.message.text.lower().strip()
     words = text.split()
+    
+    # Find amount
     amount = None
     for w in words:
         try:
             amount = float(w.replace(",", "."))
             break
-        except:
-            continue
-    
+        except: pass
     if amount is None:
-        await update.message.reply_text("Не понял сумму. Напиши: «продукты 450»")
+        await update.message.reply_text("Не нашёл сумму. Напишите: «продукты 450»")
         return
     
-    # Определяем тип
+    # Type
     ttype = "expense"
-    if any(x in text for x in ["доход", "зарплата", "получил", "+", "пришло"]):
+    if any(x in text for x in ["доход", "зарплата", "получил", "пришло", "вышло", "+"]):
         ttype = "income"
     
-    # Категория / описание
+    # Category & description
     cat = "Прочее"
     desc = text[:50]
     
-    if "энерг" in text or "свет" in text: cat = "Жильё"; desc = "Энергос"
-    elif "продукт" in text or "еда" in text: cat = "Продукты"; desc = "Продукты"
-    elif "транспорт" in text or "метро" in text: cat = "Транспорт"
-    elif "арбитр" in text or "акк" in text: cat = "Арбитраж"; desc = "Закупка аков"
-    elif "депозит" in text or "тест" in text: cat = "Депозит"
+    # Simple keyword matching
+    if any(w in text for w in ["продукт", "еда", "магазин"]): cat = "Продукты"
+    elif any(w in text for w in ["транспорт", "метро", "такси", "бензин"]): cat = "Транспорт"
+    elif any(w in text for w in ["жильё", "аренда", "коммунал", "свет", "вода"]): cat = "Жильё"
+    elif any(w in text for w in ["доход", "зарплата", "фриланс"]): cat = "Доход"
     
-    db_add_tx(user_id, ttype, amount, desc, cat)
+    db_add(uid, ttype, amount, cat, desc, "")
     sign = "+" if ttype == "income" else "−"
-    await update.message.reply_text(f"✅ Сохранено: {sign}{amount:,.0f} ₽\nКатегория: {cat}\nОписание: {desc}")
-
-async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Telegram не распознаёт голосовые автоматом. Пока просим текст.
-    await update.message.reply_text("Голосовые пока в разработке. Отправь текстом или используй Siri Shortcuts.")
+    await update.message.reply_text(f"✅ Сохранено: {sign}{amount:,.0f} ₽\nКатегория: {cat}")
 
 bot_app = None
 
 async def run_bot():
     global bot_app
+    if not TOKEN or "ВАШ" in TOKEN:
+        print("BOT_TOKEN not set")
+        return
     bot_app = Application.builder().token(TOKEN).build()
     bot_app.add_handler(CommandHandler("start", start))
     bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    bot_app.add_handler(MessageHandler(filters.VOICE, handle_voice))
-    
-    if RENDER_URL:
-        # Webhook для Render
-        await bot_app.bot.set_webhook(f"{RENDER_URL}/webhook")
-    else:
-        # Локально — polling
-        await bot_app.run_polling()
+    await bot_app.run_polling()
 
-@app.post("/webhook")
-async def webhook(request: Request):
-    data = await request.json()
-    await bot_app.process_update(Update.de_json(data, bot_app.bot))
-    return {"ok": True}
-
-# ─── MAIN ───────────────────────────
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
+@app.on_event("startup")
+async def startup():
+    asyncio.create_task(run_bot())
