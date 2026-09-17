@@ -1,0 +1,34 @@
+# Тестовый запуск: бесплатная база Render действует 30 дней.
+# Для постоянного использования выберите подходящий постоянный тариф базы.
+services:
+  - type: web
+    name: moy-ritm
+    runtime: node
+    region: frankfurt
+    plan: free
+    buildCommand: npx --yes pnpm@10.30.3 install --frozen-lockfile --prod && node scripts/check.mjs
+    startCommand: node server/index.mjs
+    healthCheckPath: /healthz
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 24
+      - key: BOT_TOKEN
+        sync: false
+      - key: WEBHOOK_SECRET
+        generateValue: true
+      - key: AUTO_CONFIGURE_BOT
+        value: "1"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: moy-ritm-db
+          property: connectionString
+databases:
+  - name: moy-ritm-db
+    region: frankfurt
+    plan: free
+    databaseName: moy_ritm
+    user: ritm
+    ipAllowList: []
