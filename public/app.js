@@ -1,5 +1,8 @@
 import {dateKey,dueOn,escapeHtml as esc} from './domain.js';
-import {state,$,tg,get,toast,haptic,saveRecord,refresh,loadDemo,subscribe,storageKey} from './state.js';
+import {state,$,tg,get,toast,haptic,saveRecord,refresh,loadDemo,subscribe,storageKey,loadFriends} from './state.js';
+import {profileOf,progress} from './progress.js';
+import {extraViews} from './vanta-views.js';
+import {openSettings,onboarding,chooseAppearance,createInvitation,enterInvitation,previewInvitation,deleteFriend} from './vanta-forms.js';
 import {render,noteCards} from './views.js';
 import {initSheet,closeSheet,openEditor,openPicker,showNote,confirmDelete,manageSpaces,editSpace,settings} from './forms.js';
 
@@ -7,12 +10,22 @@ subscribe(render);initSheet();
 async function toggle(id,date=dateKey()){
  const record=get(id);if(!record||state.busy.has(id))return;
  if(record.kind==='habit'&&(!dueOn(record,date)||date>dateKey()))return;
- state.busy.add(id);render();
- try{await saveRecord({...record,...(record.kind==='task'?{done:!record.done}:{completedDates:record.completedDates.includes(date)?record.completedDates.filter(d=>d!==date):[...record.completedDates,date].sort()})});haptic();}catch(error){toast(error.message);}finally{state.busy.delete(id);render();}
+ state.busy.add(id);const before=progress(state.items);render();
+ try{await saveRecord({...record,...(record.kind==='task'?{done:!record.done,completedOn:!record.done?dateKey():''}:{completedDates:record.completedDates.includes(date)?record.completedDates.filter(d=>d!==date):[...record.completedDates,date].sort()})});haptic();const after=progress(state.items);if(profileOf(state.items).gaming&&after.xp>before.xp)toast(after.level>before.level?`Новый уровень — ${after.level}`:`+${after.xp-before.xp} XP · ещё один шаг`);}catch(error){toast(error.message);}finally{state.busy.delete(id);render();}
 }
 function handleClick(event){
  const button=event.target.closest('button');if(!button)return;const d=button.dataset;
- if(d.toggle)return void toggle(d.toggle);
+ if(d.toggle)return void toggle(d.toggle,d.date||dateKey());
+ if(d.day){state.selectedDate=d.day;render();return;}
+ if(d.period){state.period=Number(d.period);render();return;}
+ if(d.goalScope){state.goalScope=d.goalScope;render();return;}
+ if(d.achievementFilter){state.achievementFilter=d.achievementFilter;render();return;}
+ if(d.friendScope){state.friendScope=d.friendScope;render();return;}
+ if(d.appearance)return void chooseAppearance(d.appearance);
+ if(d.removeFriend)return deleteFriend(d.removeFriend);
+ if(d.social==='invite')return void createInvitation();
+ if(d.social==='enter')return enterInvitation();
+ if(d.social==='reload')return void loadFriends();
  if(d.habitDay)return void toggle(d.habitDay,d.date);
  if(d.edit){const x=get(d.edit);if(x)openEditor(x.kind,x.id);return;}
  if(d.note)return showNote(d.note);
@@ -28,9 +41,9 @@ function handleClick(event){
 $('#main').addEventListener('click',handleClick);$('#sheet-body').addEventListener('click',handleClick);
 $('#main').addEventListener('input',event=>{if(event.target.id==='note-search'){state.search=event.target.value;$('#note-list').innerHTML=noteCards();}});
 $('#main').addEventListener('change',event=>{if(event.target.id==='show-archived'){state.archived=event.target.checked;render();}});
-$('#settings-button').onclick=()=>state.ready&&settings();
-$('#add-button').onclick=()=>{if(!state.ready)return;if(state.tab==='today')openPicker();else openEditor({notes:'note',habits:'habit',finance:'transaction'}[state.tab]);};
-function navigate(){const requested=location.hash.slice(1);state.tab=['today','notes','habits','finance'].includes(requested)?requested:'today';state.space='';state.search='';render(true);window.scrollTo({top:0});}
+$('#settings-button').onclick=()=>state.ready&&openSettings();
+$('#add-button').onclick=()=>{if(!state.ready)return;const kind={notes:'note',habits:'habit',finance:'transaction',goals:'goal'}[state.tab];if(kind)openEditor(kind);else openPicker();};
+function navigate(){const requested=location.hash.slice(1);state.tab=['today','notes','habits','finance',...Object.keys(extraViews)].includes(requested)?requested:'more';state.space='';state.search='';render(true);window.scrollTo({top:0});if(requested==='settings')openSettings();if(state.tab==='friends')void loadFriends();}
 window.addEventListener('hashchange',navigate);
 window.addEventListener('storage',event=>{if(!state.cloud&&event.key===storageKey){try{state.items=loadDemo();render();}catch{toast('Не удалось обновить записи из другой вкладки.');}}});
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&state.ready&&!state.busy.size){refresh().then(()=>render()).catch(error=>toast(error.message));}});
@@ -41,8 +54,10 @@ async function init(){
   try{tg?.ready();tg?.expand();if(tg?.isVersionAtLeast('6.1')){tg.setHeaderColor('#0b0b0b');tg.setBackgroundColor('#0b0b0b');}tg?.BackButton?.onClick(closeSheet);}catch{}
   state.config=await fetch('/api/config').then(r=>r.json());
   state.cloud=Boolean(tg?.initData)||(new URLSearchParams(location.search).get('dev')==='1'&&state.config.devAuth);
-  await refresh();state.ready=true;$('#mode-banner').hidden=state.cloud;if(!state.cloud)$('#mode-banner').textContent='Режим пробы · записи только в этом браузере';navigate();
-  if(document.modelContext?.registerTool){try{document.modelContext.registerTool({name:'list_ritm_records',title:'Прочитать записи Мой ритм',description:'Возвращает заметки, дела, привычки, операции и разделы текущего открытого профиля.',inputSchema:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:true,untrustedContentHint:true},execute:async(input={})=>{if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).length)throw new Error('Этот инструмент не принимает параметры.');await refresh();render();return {items:state.items};}});}catch{}}
+  await refresh();state.ready=true;$('#mode-banner').hidden=state.cloud;if(!state.cloud)$('#mode-banner').textContent='Режим пробы · записи только в этом браузере';if(!location.hash)location.hash='today';navigate();
+  const invite=new URLSearchParams(location.search).get('invite')||tg?.initDataUnsafe?.start_param;
+  if(invite&&/^v_[a-f0-9]{32}$/.test(invite)&&state.cloud)await previewInvitation(invite);else if(!profileOf(state.items).onboarded)onboarding();
+  if(document.modelContext?.registerTool){try{document.modelContext.registerTool({name:'list_ritm_records',title:'Прочитать записи VANTA',description:'Возвращает заметки, дела, привычки, операции и разделы текущего открытого профиля.',inputSchema:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:true,untrustedContentHint:true},execute:async(input={})=>{if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).length)throw new Error('Этот инструмент не принимает параметры.');await refresh();render();return {items:state.items};}});}catch{}}
  }catch(error){$('#main').innerHTML=`<h1>Нужно чуть<br>подождать.</h1><div class="empty-state"><p>${esc(error.message)}</p><button class="secondary-button" id="retry-load">Попробовать снова</button></div>`;$('#retry-load').onclick=()=>location.reload();}
 }
 init();

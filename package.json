@@ -1,9 +1,9 @@
 {
-  "name": "moy-ritm",
-  "version": "0.1.0",
+  "name": "vanta",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Личное пространство: заметки, дела, привычки и финансы в Telegram",
+  "description": "VANTA: привычки, заметки, финансы, цели и прогресс с друзьями в Telegram",
   "engines": { "node": ">=24 <25" },
   "packageManager": "pnpm@10.30.3",
   "scripts": {

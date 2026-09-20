@@ -7,8 +7,9 @@ export async function configureBot({token,publicUrl,secret}){
  if(!/^[a-zA-Z0-9_-]{1,256}$/.test(secret))throw new Error('WEBHOOK_SECRET: use 1–256 letters, numbers, _ or -.');
  const appUrl=url.origin;
  const me=await telegramCall(token,'getMe',{});
- await telegramCall(token,'setChatMenuButton',{menu_button:{type:'web_app',text:'Мой ритм',web_app:{url:appUrl}}});
- await telegramCall(token,'setMyCommands',{commands:[{command:'start',description:'Открыть Мой ритм'},{command:'help',description:'Как добавлять записи'},{command:'task',description:'Добавить дело'},{command:'expense',description:'Записать расход'},{command:'income',description:'Записать доход'}]});
+ await telegramCall(token,'setMyName',{name:'VANTA'});
+ await telegramCall(token,'setChatMenuButton',{menu_button:{type:'web_app',text:'VANTA',web_app:{url:appUrl}}});
+ await telegramCall(token,'setMyCommands',{commands:[{command:'start',description:'Открыть VANTA'},{command:'help',description:'Как добавлять записи'},{command:'task',description:'Добавить дело'},{command:'expense',description:'Записать расход'},{command:'income',description:'Записать доход'}]});
  await telegramCall(token,'setWebhook',{url:appUrl+'/telegram/webhook',secret_token:secret,allowed_updates:['message'],drop_pending_updates:false});
  return me.username;
 }

@@ -3,7 +3,8 @@ import {readFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import {resolve,extname,sep} from 'node:path';
 import {HttpError,verifyTelegram,safeEqual} from './auth.mjs';
-import {createItem,updateItem,deleteItem} from './service.mjs';
+import {createItem,updateItem,deleteItem,saveProfile} from './service.mjs';
+import {listFriends,inviteFriend,previewInvite,acceptInvite,removeFriend} from './social.mjs';
 import {handleUpdate} from './bot.mjs';
 
 const publicRoot=fileURLToPath(new URL('../public/',import.meta.url));
@@ -20,7 +21,7 @@ export function createApp({store,token='',publicUrl='',webhookSecret='',botUsern
   try{
    const url=new URL(req.url,'http://localhost');const path=url.pathname;
    if(path==='/healthz'&&req.method==='GET')return json(res,200,{ok:true});
-   if(path==='/api/config'&&req.method==='GET')return json(res,200,{botUsername,cloudEnabled:Boolean(token),devAuth});
+   if(path==='/api/config'&&req.method==='GET')return json(res,200,{botUsername:botUsername||process.env.BOT_USERNAME||'',cloudEnabled:Boolean(token),devAuth});
    if(path==='/telegram/webhook'&&req.method==='POST'){
     if(!token||!webhookSecret||!safeEqual(req.headers['x-telegram-bot-api-secret-token']||'',webhookSecret))throw new HttpError(403,'Forbidden');
     await handleUpdate(await readJson(req),{store,token,publicUrl});return json(res,200,{ok:true});
@@ -31,6 +32,13 @@ export function createApp({store,token='',publicUrl='',webhookSecret='',botUsern
     rate(user.id);
     if(!['GET','HEAD'].includes(req.method)&&req.headers.origin){const allowed=publicUrl?new URL(publicUrl).origin:`http://${req.headers.host}`;if(req.headers.origin!==allowed)throw new HttpError(403,'Недопустимый источник запроса.');}
     if(path==='/api/state'&&req.method==='GET')return json(res,200,{items:await store.list(user.id),user});
+    if(path==='/api/profile'&&req.method==='PATCH')return json(res,200,await saveProfile(store,user.id,await readJson(req)));
+    if(path==='/api/friends'&&req.method==='GET')return json(res,200,{friends:await listFriends(store,user.id)});
+    if(path==='/api/friends/invite'&&req.method==='POST')return json(res,201,await inviteFriend(store,user.id));
+    if(path==='/api/friends/preview'&&req.method==='POST')return json(res,200,await previewInvite(store,user.id,await readJson(req)));
+    if(path==='/api/friends/accept'&&req.method==='POST')return json(res,200,await acceptInvite(store,user.id,await readJson(req)));
+    const friendMatch=path.match(/^\/api\/friends\/([a-f0-9-]{36})$/);
+    if(friendMatch&&req.method==='DELETE')return json(res,200,await removeFriend(store,user.id,friendMatch[1]));
     if(path==='/api/items'&&req.method==='POST')return json(res,201,await createItem(store,user.id,await readJson(req)));
     const match=path.match(/^\/api\/items\/([a-zA-Z0-9_-]{1,80})$/);
     if(match&&req.method==='PATCH')return json(res,200,await updateItem(store,user.id,match[1],await readJson(req)));

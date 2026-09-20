@@ -11,5 +11,5 @@ for(const directory of ['public','server','scripts','tests']){
 }
 const html=await readFile('public/index.html','utf8');
 for(const [,path]of html.matchAll(/(?:src|href)="(\/(?!\/)[^"#]+)"/g))await access(resolve('public','.'+path));
-for(const asset of ['hands.jpg','focus.jpg'])await access(resolve('public/assets',asset));
+for(const asset of ['hands.jpg','focus.jpg','marble.png','spartan.png'])await access(resolve('public/assets',asset));
 console.log(`Checked ${count} JavaScript modules and local assets.`);

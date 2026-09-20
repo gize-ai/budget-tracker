@@ -1,5 +1,7 @@
 import {dateKey,dayNumber,weekDates,weekdays,money,escapeHtml as esc,dueOn} from './domain.js';
 import {state,$,all,spaces,spaceName,inSpace,shortDate,monthLabel,plural} from './state.js';
+import {extraViews} from './vanta-views.js';
+import {profileOf} from './progress.js';
 
 export function empty(title,text,kind){return `<div class="empty-state"><div class="empty-mark" aria-hidden="true">◌</div><h3>${esc(title)}</h3><p>${esc(text)}</p>${kind?`<button class="secondary-button" data-create="${kind}">Добавить ${kind==='note'?'заметку':kind==='habit'?'привычку':kind==='transaction'?'операцию':'дело'}</button>`:''}</div>`;}
 function chips(){return `<div class="chips" aria-label="Фильтр по разделу"><button class="chip ${!state.space?'active':''}" data-space="">Все</button>${spaces().map(s=>`<button class="chip ${state.space===s.id?'active':''}" data-space="${esc(s.id)}">${esc(s.title)}</button>`).join('')}<button class="chip ${state.space==='__none'?'active':''}" data-space="__none">Без раздела</button><button class="chip add-chip" data-action="spaces" aria-label="Управлять разделами">+</button></div>`;}
@@ -32,9 +34,12 @@ function financeView(){
  return `<h1>Деньги под<br>контролем.</h1><div class="month-selector"><button class="icon-button" data-month="-1" aria-label="Предыдущий месяц">‹</button><strong>${esc(monthLabel(state.month))}</strong><button class="icon-button" data-month="1" aria-label="Следующий месяц">›</button></div><div class="finance-amount">${money(expense)}</div><p class="finance-caption">расходы за месяц</p><div class="summary-grid"><div class="summary-card"><span class="summary-label">ДОХОДЫ</span><span class="summary-value">${money(income)}</span></div><div class="summary-card"><span class="summary-label">РАЗНИЦА</span><span class="summary-value">${money(income-expense)}</span><span class="summary-meta">доходы минус расходы</span></div></div>${categories.size?`<div class="finance-block"><div class="section-heading"><h2>Куда уходят деньги</h2></div>${[...categories].sort((a,b)=>b[1]-a[1]).map(([name,value])=>`<div class="category-row"><div class="category-top"><span>${esc(name)}</span><span>${money(value)}</span></div><div class="category-bar"><span style="width:${value/expense*100}%"></span></div></div>`).join('')}</div>`:''}<div class="section-heading"><h2>Операции</h2><span class="minor">${tx.length} за месяц</span></div>${tx.map(x=>`<button class="transaction ${x.type}" data-edit="${esc(x.id)}"><span class="transaction-main"><span class="transaction-title">${esc(x.title)}</span><span class="transaction-meta">${esc(x.category)} · ${shortDate(x.date)}${x.spaceId?' · '+esc(spaceName(x.spaceId)):''}</span></span><strong>${x.type==='income'?'+':'−'}${money(x.amount)}</strong></button>`).join('')||empty('Пока без записей','Запиши расход или доход — итоги появятся здесь.','transaction')}`;
 }
 export function render(animate=false){
- if(!state.ready)return;const views={today:todayView,notes:notesView,habits:habitsView,finance:financeView};
+ if(!state.ready)return;const views={notes:notesView,habits:habitsView,finance:financeView,...extraViews};
+ document.body.classList.toggle('reduce-motion',profileOf(state.items).reducedMotion);
  $('#main').innerHTML=`<div ${animate?'class="page-enter"':''}>${views[state.tab]()}</div>`;
- document.querySelectorAll('[data-tab]').forEach(link=>{const selected=link.dataset.tab===state.tab;link.classList.toggle('active',selected);if(selected)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');});
+ document.querySelectorAll('[data-tab]').forEach(link=>{const active=['today','notes','finance','progress'].includes(state.tab)?state.tab:'more',selected=link.dataset.tab===active;link.classList.toggle('active',selected);if(selected)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');});
  $('#header-date').textContent=new Intl.DateTimeFormat('ru-RU',{weekday:'short',day:'numeric',month:'short'}).format(new Date()).replaceAll('.','');
- $('#add-button').innerHTML='<span class="plus-mark" aria-hidden="true">+</span>'+({today:'Добавить запись',notes:'Новая заметка',habits:'Новая привычка',finance:'Добавить операцию'})[state.tab];
+ $('#add-button').innerHTML='<span class="plus-mark" aria-hidden="true">+</span>'+({today:'Добавить запись',notes:'Новая заметка',habits:'Новая привычка',finance:'Добавить операцию',goals:'Новая цель'}[state.tab]||'Добавить запись');
+ document.querySelector('.add-dock').hidden=!['today','notes','habits','finance','goals'].includes(state.tab);
+ document.querySelector('.app-shell').classList.toggle('without-dock',!['today','notes','habits','finance','goals'].includes(state.tab));
 }

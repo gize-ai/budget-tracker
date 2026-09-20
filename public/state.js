@@ -1,4 +1,5 @@
 import {dateKey,createDemo} from './domain.js';
+import {profileOf} from './progress.js';
 export const $=selector=>document.querySelector(selector);
 export const tg=window.Telegram?.WebApp;
 export const storageKey='moy-ritm-demo-v1';
@@ -28,7 +29,7 @@ export function loadDemo(){const saved=localStorage.getItem(storageKey);if(!save
 export async function refresh(){if(state.cloud){const result=await api('/api/state');state.items=result.items;state.user=result.user;}else state.items=loadDemo();}
 export async function saveRecord(record){
  let saved;
- if(state.cloud){try{saved=await api(record.id?'/api/items/'+record.id:'/api/items',{method:record.id?'PATCH':'POST',body:JSON.stringify(record)});}catch(error){if(error.status===409){await refresh();notify();}throw error;}}
+ if(state.cloud){try{saved=await api(record.kind==='profile'?'/api/profile':record.id?'/api/items/'+record.id:'/api/items',{method:record.kind==='profile'||record.id?'PATCH':'POST',body:JSON.stringify(record)});}catch(error){if(error.status===409){await refresh();notify();}throw error;}}
  else{const latest=loadDemo();const existing=record.id?latest.find(x=>x.id===record.id):null;if(record.id&&(!existing||record.version!==existing.version)){state.items=latest;notify();const error=new Error('Запись изменилась в другой вкладке. Проверь данные и сохрани ещё раз.');error.status=409;throw error;}const now=Date.now();saved={...record,id:record.id||crypto.randomUUID(),createdAt:existing?.createdAt||now,updatedAt:now,version:(existing?.version||0)+1};const next=existing?latest.map(x=>x.id===saved.id?saved:x):[...latest,saved];localStorage.setItem(storageKey,JSON.stringify(next));state.items=next;}
  if(state.cloud)state.items=state.items.some(x=>x.id===saved.id)?state.items.map(x=>x.id===saved.id?saved:x):[...state.items,saved];
  notify();return saved;
@@ -38,3 +39,5 @@ export async function removeRecord(record){
  else{const latest=loadDemo();const current=latest.find(x=>x.id===record.id);if(!current||current.version!==record.version)throw new Error('Запись изменилась. Открой её заново.');const next=latest.filter(x=>x.id!==record.id).map(x=>x.spaceId===record.id?{...x,spaceId:'',version:x.version+1,updatedAt:Date.now()}:x);localStorage.setItem(storageKey,JSON.stringify(next));state.items=next;}
  if(state.space===record.id)state.space='';notify();
 }
+export async function savePreferences(patch){return saveRecord({...profileOf(state.items),...patch,kind:'profile',title:'VANTA'});}
+export async function loadFriends(){if(!state.cloud)return;state.friendsLoading=true;state.friendsError='';notify();try{state.friends=(await api('/api/friends')).friends;}catch(error){state.friendsError=error.message;}finally{state.friendsLoading=false;notify();}}
