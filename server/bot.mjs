@@ -9,8 +9,11 @@ export async function handleUpdate(update,{store,token,publicUrl}){
  const msg=update.message;
  if(!Number.isSafeInteger(update.update_id)||!msg||msg.chat?.type!=='private'||!Number.isSafeInteger(msg.from?.id)||msg.from.id!==msg.chat.id)return;
  const text=msg.text?.trim();if(!text)return;
- const reply=message=>telegramCall(token,'sendMessage',{chat_id:msg.chat.id,text:message,reply_markup:{inline_keyboard:[[{text:'Открыть Мой ритм',web_app:{url:publicUrl}}]]}});
- if(/^\/(start|help)(@\w+)?(?:\s|$)/.test(text))return reply('Мой ритм — твои мысли, дела, привычки и финансы.\n\nОткрой приложение или просто пришли текст — сохраню его в заметки.\n\n/expense 250 Кофе — расход\n/income 5000 Подработка — доход\n/task Набросать план — дело\n\nСвои разделы и привычки можно создать в приложении.');
+ const invitation=text.match(/^\/start(?:@\w+)?\s+(v_[a-f0-9]{32})$/)?.[1];
+ const appUrl=invitation?new URL('/?invite='+invitation,publicUrl).href:publicUrl;
+ const reply=message=>telegramCall(token,'sendMessage',{chat_id:msg.chat.id,text:message,reply_markup:{inline_keyboard:[[{text:invitation?'Открыть приглашение':'Открыть VANTA',web_app:{url:appUrl}}]]}});
+ if(invitation)return reply('Тебя пригласили в VANTA. Открой приложение и прими приглашение, чтобы видеть игровой прогресс друг друга. Личные записи, цели и финансы останутся закрытыми.');
+ if(/^\/(start|help)(@\w+)?(?:\s|$)/.test(text))return reply('VANTA — твои мысли, дела, привычки, цели и финансы.\n\nОткрой приложение или просто пришли текст — сохраню его в заметки.\n\n/expense 250 Кофе — расход\n/income 5000 Подработка — доход\n/task Набросать план — дело\n\nМаленькие действия. Настоящий прогресс.');
  const match=text.match(/^\/(expense|income|task)(?:@\w+)?\s+([\s\S]+)$/);
  let record,confirmation;
  if(match&&match[1]==='task'){record={kind:'task',title:match[2],spaceId:'',done:false,dueDate:''};confirmation='Дело добавлено в «Сегодня».';}
